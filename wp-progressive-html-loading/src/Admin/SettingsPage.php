@@ -127,6 +127,8 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                 'enable_post_list_column' => true,
                 // Default for enabling dashboard widget (v0.2.0)
                 'enable_dashboard_widget' => true,
+                // Default for batch chunk size (v0.2.1)
+                'batch_chunk_size' => 25,
             );
         }
 
@@ -560,6 +562,21 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                 array($this, 'render_view_task_queue_field'),
                 self::$page_slug,
                 'lha_manual_tools_section'
+            );
+            // Add Batch Chunk Size to Manual Tools or Background Processing section
+            add_settings_field(
+                'batch_chunk_size',
+                __('Batch Chunk Size', 'lha-progressive-html'),
+                array($this, 'render_number_field'),
+                self::$page_slug,
+                'lha_manual_tools_section', // Or 'lha_bg_processing_section'
+                array(
+                    'id' => 'batch_chunk_size',
+                    'label_for' => 'batch_chunk_size',
+                    'description' => __('Number of items to process per background task cycle during batch operations. Default 25.', 'lha-progressive-html'),
+                    'min' => 1,
+                    'step' => 1
+                )
             );
 
             // Admin UI Enhancements Section
@@ -1132,6 +1149,13 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
             $output['enable_post_list_column'] = !empty($input['enable_post_list_column']);
             $output['enable_dashboard_widget'] = !empty($input['enable_dashboard_widget']);
 
+            if (isset($input['batch_chunk_size'])) {
+                $chunk_size = absint($input['batch_chunk_size']);
+                $output['batch_chunk_size'] = ($chunk_size > 0) ? $chunk_size : 25; // Default to 25 if invalid
+            } else {
+                $output['batch_chunk_size'] = $this->options['batch_chunk_size'] ?? 25;
+            }
+
 
             if (isset($input['processing_user_marker_target'])) {
                 $output['processing_user_marker_target'] = sanitize_text_field($input['processing_user_marker_target']);
@@ -1269,7 +1293,8 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                     'fallback_realtime_user_marker_enabled',
                     'enable_metabox', 
                     'enable_post_list_column',
-                    'enable_dashboard_widget', // New UI setting
+                    'enable_dashboard_widget',
+                    'batch_chunk_size', // New setting
                     // css_selector_info, nth_element_info, min_chunk_size_info were removed.
                     'manual_process_post_id_field',
                     'batch_process_field',
@@ -1472,6 +1497,9 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
 
             $options = get_option(self::$option_name, $this->get_default_settings());
             $processing_post_types = $options['processing_post_types'] ?? array();
+            $chunk_size = absint($options['batch_chunk_size'] ?? 25);
+            if ($chunk_size <= 0) $chunk_size = 25;
+
 
             if (empty($processing_post_types)) {
                  wp_send_json_error(array('message' => __('No post types selected for processing in plugin settings.', 'lha-progressive-html')));
@@ -1479,54 +1507,36 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
 
             $args = array(
                 'post_type' => $processing_post_types,
-                'post_status' => 'publish',
-                'posts_per_page' => -1,
-                'fields' => 'ids',
+                'post_status' => 'publish', // Consider adding other statuses or making configurable
+                'posts_per_page' => -1, // Get all matching post IDs
+                'fields' => 'ids',      // Only fetch IDs
             );
             $post_ids = get_posts($args);
 
             if (empty($post_ids)) {
-                wp_send_json_success(array('message' => __('No posts found for the selected post types to schedule.', 'lha-progressive-html')));
+                wp_send_json_success(array('message' => __('No posts found for the selected post types to schedule for batch processing.', 'lha-progressive-html')));
+                return;
             }
 
             $scheduler = $this->service_locator->get('scheduler');
-            if (!$scheduler instanceof LHA_Core_Scheduler) {
+            if ($scheduler instanceof LHA_Core_Scheduler) {
+                $action_id = $scheduler->schedule_master_batch_job(
+                    'lha_master_content_processing_batch_action', // Master hook name
+                    $post_ids,                                   // Array of all post IDs
+                    'lha_process_post_content_action',          // Single item processing hook
+                    $chunk_size                                  // Chunk size from settings
+                );
+                if ($action_id) {
+                    wp_send_json_success(array('message' => sprintf(__('%d posts scheduled for batch processing via master task (ID: %d). Check task queue for progress.', 'lha-progressive-html'), count($post_ids), $action_id)));
+                } else {
+                    // Check if a similar master task is already scheduled (if schedule_master_batch_job returns null on unique match)
+                    // This requires more complex checking if the master task args need to be identical.
+                    // For now, assume if action_id is null, it failed or was a duplicate that shouldn't run.
+                     wp_send_json_error(array('message' => __('Failed to schedule master batch processing task. It might already be scheduled or an error occurred.', 'lha-progressive-html')));
+                }
+            } else {
                 wp_send_json_error(array('message' => __('Scheduler service not available.', 'lha-progressive-html')));
             }
-
-            $scheduled_count = 0;
-            $already_scheduled_count = 0;
-            foreach ($post_ids as $post_id) {
-                if (!$scheduler->is_action_scheduled('lha_process_post_content_action', array('post_id' => $post_id))) {
-                    $scheduler->enqueue_async_action('lha_process_post_content_action', array('post_id' => $post_id), true);
-                    $scheduled_count++;
-                } else {
-                    $already_scheduled_count++;
-                }
-            }
-            
-            $message = sprintf(
-                _n(
-                    '%d post scheduled for batch processing.',
-                    '%d posts scheduled for batch processing.',
-                    $scheduled_count,
-                    'lha-progressive-html'
-                ),
-                $scheduled_count
-            );
-            if ($already_scheduled_count > 0) {
-                $message .= ' ' . sprintf(
-                    _n(
-                        '%d post was already scheduled.',
-                        '%d posts were already scheduled.',
-                        $already_scheduled_count,
-                        'lha-progressive-html'
-                    ),
-                    $already_scheduled_count
-                );
-            }
-
-            wp_send_json_success(array('message' => $message));
         }
 
         /**

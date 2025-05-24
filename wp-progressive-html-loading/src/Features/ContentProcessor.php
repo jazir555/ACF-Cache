@@ -58,6 +58,7 @@ if (!class_exists('LHA_Features_ContentProcessor')) {
          */
         public static function boot() {
             add_action('lha_process_post_content_action', array(__CLASS__, 'handle_process_post_action'), 10, 1);
+            add_action('lha_master_content_processing_batch_action', array(__CLASS__, 'handle_master_content_processing_batch'), 10, 1);
             // Add more action handlers here if other task types are defined later.
         }
 
@@ -603,6 +604,104 @@ if (!class_exists('LHA_Features_ContentProcessor')) {
                 LHA_Logging::error("Content Processor: CSS selector '{$css_selector}' is too complex or invalid for basic XPath conversion.");
             }
             return ''; // Failed to convert
+        }
+
+        /**
+         * Static handler for the master batch processing task.
+         *
+         * Processes a chunk of items and reschedules itself for the next chunk.
+         *
+         * @since 0.2.1
+         * @param array $args Arguments passed by Action Scheduler for the master task.
+         *                  Expected keys: 'all_item_ids', 'current_offset', 'chunk_size',
+         *                                 'single_item_action_hook', 'original_args', 'master_hook_name'.
+         * @return void
+         */
+        public static function handle_master_content_processing_batch(array $args) {
+            if (class_exists('LHA_Logging')) {
+                LHA_Logging::info("Master Batch Handler: Task started. Args: " . print_r($args, true));
+            }
+
+            try {
+                $all_item_ids           = $args['all_item_ids'] ?? array();
+                $current_offset         = $args['current_offset'] ?? 0;
+                $chunk_size             = $args['chunk_size'] ?? 25; // Default chunk size
+                $single_item_action_hook = $args['single_item_action_hook'] ?? '';
+                $original_args          = $args['original_args'] ?? array();
+                $master_hook_name       = $args['master_hook_name'] ?? '';
+
+                if (empty($all_item_ids) || empty($single_item_action_hook) || empty($master_hook_name) || $chunk_size <= 0) {
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::error("Master Batch Handler: Invalid or missing arguments. Aborting. Args: " . print_r($args, true));
+                    }
+                    return;
+                }
+
+                $item_chunk = array_slice($all_item_ids, $current_offset, $chunk_size);
+
+                if (empty($item_chunk)) {
+                     if (class_exists('LHA_Logging')) {
+                        LHA_Logging::info("Master Batch Handler: No more items to process. Batch complete for master hook {$master_hook_name}.");
+                    }
+                    return;
+                }
+
+                $scheduler = null;
+                if (function_exists('lha_progressive_html_loader_plugin')) {
+                    $plugin_instance = lha_progressive_html_loader_plugin();
+                    if ($plugin_instance && method_exists($plugin_instance, 'get_service_locator')) {
+                        $service_locator = $plugin_instance->get_service_locator();
+                        if ($service_locator) $scheduler = $service_locator->get('scheduler');
+                    }
+                }
+
+                if (!$scheduler instanceof LHA_Core_Scheduler) {
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::error("Master Batch Handler: Could not retrieve Scheduler service.");
+                    }
+                    // Potentially reschedule self with a delay if this is a transient issue
+                    // This would require access to the original $master_hook_name and $args from the current action.
+                    // For now, we log and exit. A robust system might retry.
+                    return;
+                }
+
+                if (class_exists('LHA_Logging')) {
+                    LHA_Logging::info("Master Batch Handler: Processing chunk of " . count($item_chunk) . " items. Offset: {$current_offset}.");
+                }
+
+                foreach ($item_chunk as $item_id) {
+                    $task_args = array('post_id' => (int)$item_id) + $original_args;
+                    $scheduler->enqueue_async_action($single_item_action_hook, $task_args, true);
+                }
+
+                $new_offset = $current_offset + count($item_chunk); 
+
+                if ($new_offset < count($all_item_ids)) {
+                    $next_master_args = array(
+                        'all_item_ids'            => $all_item_ids,
+                        'current_offset'          => $new_offset,
+                        'chunk_size'              => $chunk_size,
+                        'single_item_action_hook' => $single_item_action_hook,
+                        'original_args'           => $original_args,
+                        'master_hook_name'        => $master_hook_name,
+                    );
+                    
+                    $delay = apply_filters('lha_master_batch_reschedule_delay', MINUTE_IN_SECONDS * 1);
+                    $scheduler->schedule_single_action($master_hook_name, $next_master_args, time() + $delay, true);
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::info("Master Batch Handler: Rescheduled self for next chunk. New offset: {$new_offset}. Master Hook: {$master_hook_name}.");
+                    }
+                } else {
+                     if (class_exists('LHA_Logging')) {
+                        LHA_Logging::info("Master Batch Handler: All items processed for master hook {$master_hook_name}. Batch complete.");
+                    }
+                }
+
+            } catch (\Throwable $e) {
+                if (class_exists('LHA_Logging')) {
+                    LHA_Logging::error("Master Batch Handler: Uncaught exception: " . $e->getMessage() . " Stack: " . $e->getTraceAsString());
+                }
+            }
         }
     }
 }

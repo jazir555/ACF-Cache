@@ -63,13 +63,12 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
     class ProgressiveHTMLLoaderPlugin { // Adjusted to avoid namespace conflict before autoloader setup, will be LHA\ProgressiveHTMLLoaderPlugin
         /**
          * Action group name for Action Scheduler tasks.
-         * @since 0.2.0 // Assuming 0.2.0 for new features
+         * @since 0.2.0 
          */
         private const ACTION_GROUP = 'lha-progressive-html-processing';
 
         /**
          * Singleton instance of the plugin.
-         *
          * @var ProgressiveHTMLLoaderPlugin|null
          * @access private
          * @static
@@ -78,7 +77,6 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
 
         /**
          * Instance of the Core Registry.
-         *
          * @var LHA\Core\Registry|null
          * @access private
          */
@@ -86,7 +84,6 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
 
         /**
          * Instance of the Core Service Locator.
-         *
          * @var LHA\Core\ServiceLocator|null
          * @access private
          */
@@ -94,7 +91,6 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
 
         /**
          * Ensures only one instance of the plugin is loaded.
-         *
          * @return ProgressiveHTMLLoaderPlugin
          * @static
          * @since 0.1.0
@@ -109,29 +105,22 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
         /**
          * Private constructor to prevent direct instantiation.
          * Initializes registry, service locator, loads dependencies, and adds hooks.
-         *
          * @access private
          * @since 0.1.0
          */
         private function __construct() {
-            // Initialize Registry and ServiceLocator
             $this->registry = new LHA_Core_Registry();
             $this->service_locator = new LHA_Core_ServiceLocator();
-
             $this->load_dependencies();
             $this->add_hooks();
         }
 
         /**
          * Loads plugin dependencies and registers features/services.
-         * Features are registered with the registry.
-         * Services are registered with the service locator.
-         *
          * @access private
          * @since 0.1.0
          */
         private function load_dependencies() {
-            // Existing feature registrations
             $this->registry->register_feature(
                 'html_streaming',
                 LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Features/HTMLStreaming.php',
@@ -163,37 +152,27 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
                 'boot'
             );
 
-            // Services
             $this->service_locator->register('content_fetcher', function() {
                 $fetcher_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Services/ContentFetcher.php';
-                if (file_exists($fetcher_file) && !class_exists('LHA_Services_ContentFetcher')) {
-                    require_once $fetcher_file;
-                }
+                if (file_exists($fetcher_file) && !class_exists('LHA_Services_ContentFetcher')) { require_once $fetcher_file; }
                 if (!class_exists('LHA_Services_ContentFetcher')) {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::error('LHA_Services_ContentFetcher class not found.'); }
-                    return null; 
+                    if (class_exists('LHA_Logging')) { LHA_Logging::error('LHA_Services_ContentFetcher class not found.'); } return null; 
                 }
                 return new LHA_Services_ContentFetcher();
             });
             $this->service_locator->register('storage_manager', function() {
                 $manager_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Core/StorageManager.php';
-                if (file_exists($manager_file) && !class_exists('LHA_Core_StorageManager')) {
-                    require_once $manager_file;
-                }
+                if (file_exists($manager_file) && !class_exists('LHA_Core_StorageManager')) { require_once $manager_file; }
                 if (!class_exists('LHA_Core_StorageManager')) {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::error('LHA_Core_StorageManager class not found.'); }
-                    return null; 
+                    if (class_exists('LHA_Logging')) { LHA_Logging::error('LHA_Core_StorageManager class not found.'); } return null; 
                 }
                 return new LHA_Core_StorageManager();
             });
             $this->service_locator->register('content_processor_instance', function() {
                 $processor_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Features/ContentProcessor.php';
-                if (file_exists($processor_file) && !class_exists('LHA_Features_ContentProcessor')) {
-                    require_once $processor_file;
-                }
+                if (file_exists($processor_file) && !class_exists('LHA_Features_ContentProcessor')) { require_once $processor_file; }
                 if (!class_exists('LHA_Features_ContentProcessor')) {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::error('LHA_Features_ContentProcessor class not found.'); }
-                    return null; 
+                    if (class_exists('LHA_Logging')) { LHA_Logging::error('LHA_Features_ContentProcessor class not found.'); } return null; 
                 }
                 return new LHA_Features_ContentProcessor($this->service_locator); 
             });
@@ -215,7 +194,6 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
 
         /**
          * Handles the 'save_post' action.
-         * Schedules a post for background processing if conditions are met.
          * @since 0.2.0
          * @param int     $post_id The ID of the post being saved.
          * @param \WP_Post $post    The post object.
@@ -223,45 +201,34 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
          */
         public function handle_save_post(int $post_id, \WP_Post $post): void {
             if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id) || (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE)) {
-                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Ignoring revision/autosave for Post ID: {$post_id}."); }
-                return;
+                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Ignoring revision/autosave for Post ID: {$post_id}."); } return;
             }
             $options = get_option('lha_progressive_html_settings');
             if (empty($options['enable_background_processing']) || empty($options['process_on_save'])) {
-                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Background processing or process_on_save disabled. Post ID: {$post_id}."); }
-                return;
+                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Background processing or process_on_save disabled. Post ID: {$post_id}."); } return;
             }
             $processing_post_types = $options['processing_post_types'] ?? array();
             if (!in_array($post->post_type, $processing_post_types, true)) {
-                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Post type '{$post->post_type}' not selected for processing. Post ID: {$post_id}."); }
-                return;
+                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Post type '{$post->post_type}' not selected for processing. Post ID: {$post_id}."); } return;
             }
             if (!in_array($post->post_status, array('publish', 'private'), true)) {
-                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Post status '{$post->post_status}' not publish/private. Post ID: {$post_id}."); }
-                return;
+                if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Post status '{$post->post_status}' not publish/private. Post ID: {$post_id}."); } return;
             }
             if (!$this->service_locator) {
-                if (class_exists('LHA_Logging')) { LHA_Logging::error("Save Post: ServiceLocator unavailable. Post ID: {$post_id}."); }
-                return;
+                if (class_exists('LHA_Logging')) { LHA_Logging::error("Save Post: ServiceLocator unavailable. Post ID: {$post_id}."); } return;
             }
             $scheduler = $this->service_locator->get('scheduler');
             if ($scheduler instanceof LHA_Core_Scheduler) {
                 $action_id = $scheduler->enqueue_async_action('lha_process_post_content_action', array('post_id' => $post_id), true);
-                if ($action_id) {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Scheduled processing for Post ID: {$post_id}. Action ID: {$action_id}."); }
+                if ($action_id) { if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Scheduled processing for Post ID: {$post_id}. Action ID: {$action_id}."); }
                 } elseif ($scheduler->is_action_scheduled('lha_process_post_content_action', array('post_id' => $post_id))) {
                     if (class_exists('LHA_Logging')) { LHA_Logging::info("Save Post: Processing for Post ID {$post_id} already scheduled."); }
-                } else {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::error("Save Post: Failed to schedule processing for Post ID {$post_id}."); }
-                }
-            } else {
-                if (class_exists('LHA_Logging')) { LHA_Logging::error("Save Post: Scheduler service invalid. Post ID: {$post_id}. Type: " . (is_object($scheduler) ? get_class($scheduler) : gettype($scheduler))); }
-            }
+                } else { if (class_exists('LHA_Logging')) { LHA_Logging::error("Save Post: Failed to schedule processing for Post ID {$post_id}."); } }
+            } else { if (class_exists('LHA_Logging')) { LHA_Logging::error("Save Post: Scheduler service invalid. Post ID: {$post_id}. Type: " . (is_object($scheduler) ? get_class($scheduler) : gettype($scheduler))); } }
         }
 
         /**
          * Handles the 'delete_post' action.
-         * Unschedules pending processing and schedules cleanup of stored data.
          * @since 0.2.0
          * @param int $post_id The ID of the post being deleted.
          * @return void
@@ -269,28 +236,22 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
         public function handle_delete_post(int $post_id): void {
              if (class_exists('LHA_Logging')) { LHA_Logging::info("Delete Post: Triggered for Post ID: {$post_id}."); }
             if (!$this->service_locator) {
-                 if (class_exists('LHA_Logging')) { LHA_Logging::error("Delete Post: ServiceLocator unavailable. Post ID: {$post_id}."); }
-                return;
+                 if (class_exists('LHA_Logging')) { LHA_Logging::error("Delete Post: ServiceLocator unavailable. Post ID: {$post_id}."); } return;
             }
             $scheduler = $this->service_locator->get('scheduler');
             if ($scheduler instanceof LHA_Core_Scheduler) {
                 $scheduler->unschedule_action('lha_process_post_content_action', array('post_id' => $post_id));
                 if (class_exists('LHA_Logging')) { LHA_Logging::info("Delete Post: Unscheduled pending processing for Post ID: {$post_id}."); }
                 $action_id = $scheduler->enqueue_async_action('lha_cleanup_post_data_action', array('post_id' => $post_id), true);
-                 if ($action_id) {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::info("Delete Post: Scheduled cleanup for Post ID: {$post_id}. Action ID: {$action_id}."); }
+                 if ($action_id) { if (class_exists('LHA_Logging')) { LHA_Logging::info("Delete Post: Scheduled cleanup for Post ID: {$post_id}. Action ID: {$action_id}."); }
                 } elseif ($scheduler->is_action_scheduled('lha_cleanup_post_data_action', array('post_id' => $post_id))) {
                     if (class_exists('LHA_Logging')) { LHA_Logging::info("Delete Post: Cleanup for Post ID {$post_id} already scheduled."); }
-                } else {
-                    if (class_exists('LHA_Logging')) { LHA_Logging::error("Delete Post: Failed to schedule cleanup for Post ID {$post_id}."); }
-                }
-            } else {
-                 if (class_exists('LHA_Logging')) { LHA_Logging::error("Delete Post: Scheduler service invalid. Post ID: {$post_id}. Type: " . (is_object($scheduler) ? get_class($scheduler) : gettype($scheduler))); }
-            }
+                } else { if (class_exists('LHA_Logging')) { LHA_Logging::error("Delete Post: Failed to schedule cleanup for Post ID {$post_id}."); } }
+            } else { if (class_exists('LHA_Logging')) { LHA_Logging::error("Delete Post: Scheduler service invalid. Post ID: {$post_id}. Type: " . (is_object($scheduler) ? get_class($scheduler) : gettype($scheduler))); } }
         }
 
         /**
-         * Initializes the plugin: loads text domain, features, and admin components.
+         * Initializes the plugin: loads text domain, features, shortcodes, and admin components.
          * This method is hooked into 'plugins_loaded'.
          * @since 0.1.0
          * @return void
@@ -305,9 +266,10 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
             if ($this->registry) {
                 $this->registry->load_features();
             }
+            
+            $this->register_shortcodes(); // Call to register shortcodes
 
             if (is_admin()) {
-                // Metabox
                 $metabox_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Admin/Metabox.php';
                 if (file_exists($metabox_file)) {
                     require_once $metabox_file; 
@@ -316,7 +278,6 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
                         if (class_exists('LHA_Logging')) { LHA_Logging::info('LHA_Admin_Metabox booted.'); }
                     }
                 }
-                // Post List Column
                 $post_list_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Admin/PostList.php';
                 if (file_exists($post_list_file)) {
                     require_once $post_list_file;
@@ -325,7 +286,6 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
                         if (class_exists('LHA_Logging')) { LHA_Logging::info('LHA_Admin_PostList booted.'); }
                     }
                 }
-                // Dashboard Widget
                 $dashboard_widget_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Admin/DashboardWidget.php';
                 if (file_exists($dashboard_widget_file)) {
                     require_once $dashboard_widget_file;
@@ -336,6 +296,37 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
                 }
             }
         }
+        
+        /**
+         * Registers plugin shortcodes.
+         * @since 0.2.2
+         */
+        public function register_shortcodes() {
+            add_shortcode('lha_flush_target', array($this, 'render_lha_flush_target_shortcode'));
+        }
+
+        /**
+         * Renders the [lha_flush_target] shortcode.
+         * Outputs an HTML comment that the ContentProcessor looks for as a user-defined
+         * flush point. The exact comment text is based on the 'processing_user_marker_target' setting.
+         * @since 0.2.2
+         * @param array  $atts    Shortcode attributes (not used).
+         * @param string $content Shortcode content (not used).
+         * @param string $tag     The shortcode tag, should be 'lha_flush_target'.
+         * @return string The HTML comment to be inserted into the content.
+         */
+        public function render_lha_flush_target_shortcode($atts = array(), $content = null, $tag = '') {
+            $options = get_option('lha_progressive_html_settings', array());
+            // Default matches LHA_Features_ContentProcessor and LHA_Admin_SettingsPage
+            $target_marker_text = $options['processing_user_marker_target'] ?? 'LHA_FLUSH_TARGET';
+            $trimmed_marker_text = trim($target_marker_text);
+
+            if (empty($trimmed_marker_text)) {
+                return '<!-- LHA: Empty Target Marker Configured -->'; 
+            }
+            return '<!-- ' . esc_attr($trimmed_marker_text) . ' -->';
+        }
+
 
         /**
          * Plugin activation hook.

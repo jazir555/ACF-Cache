@@ -234,6 +234,52 @@ if (!class_exists('LHA_Core_Scheduler')) {
         public static function get_action_group(): string {
             return self::$action_group;
         }
+
+        /**
+         * Schedules the initial master task for a batch operation.
+         *
+         * The master task will then process items in chunks and reschedule itself.
+         *
+         * @since 0.2.1 
+         * @param string $master_hook_name         The hook name for the master task.
+         * @param array  $all_item_ids             Array of all item IDs to process.
+         * @param string $single_item_action_hook  The hook name for processing a single item.
+         * @param int    $chunk_size               Number of items to process per chunk.
+         * @param array  $original_args            Additional arguments for the single item tasks and master task.
+         * @param bool   $unique                   If true, try to schedule uniquely (AS default behavior).
+         * @return int|null The action ID if scheduled, null otherwise.
+         */
+        public function schedule_master_batch_job(
+            string $master_hook_name,
+            array $all_item_ids,
+            string $single_item_action_hook,
+            int $chunk_size,
+            array $original_args = array(),
+            bool $unique = true 
+        ): ?int {
+            if (empty($all_item_ids) || $chunk_size <= 0) {
+                if (class_exists('LHA_Logging')) { // Check if LHA_Logging is available
+                    LHA_Logging::error("Scheduler: Invalid arguments for master batch job. Item IDs empty or chunk size invalid.");
+                }
+                return null;
+            }
+
+            $master_task_args = array(
+                'all_item_ids'            => $all_item_ids,
+                'current_offset'          => 0,
+                'chunk_size'              => $chunk_size,
+                'single_item_action_hook' => $single_item_action_hook,
+                'original_args'           => $original_args,
+                'master_hook_name'        => $master_hook_name, // Pass for self-rescheduling
+            );
+
+            // Schedule the first master task to run reasonably soon
+            // Using schedule_single_action with a small delay can be better than async for first batch task
+            // to ensure it doesn't run before current request finishes if that's a concern.
+            // return $this->schedule_single_action($master_hook_name, $master_task_args, time() + 10, $unique); 
+            // Or use async if immediate processing is fine:
+            return $this->enqueue_async_action($master_hook_name, $master_task_args, $unique);
+        }
     }
 }
 // Note: Closing ?> tag is omitted as per WordPress coding standards.

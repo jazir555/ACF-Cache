@@ -58,6 +58,16 @@ if (!class_exists('LHA_Features_HTMLStreaming')) {
         private $service_locator;
 
         /**
+         * Options for real-time fallback processing.
+         * Populated in maybe_start_streaming if real-time fallback is active.
+         *
+         * @var array
+         * @access private
+         * @since 0.2.0
+         */
+        private $realtime_fallback_options = array();
+
+        /**
          * Constructor for HTMLStreaming.
          *
          * @since 0.1.0 Updated 0.2.0 to accept ServiceLocator.
@@ -285,6 +295,14 @@ if (!class_exists('LHA_Features_HTMLStreaming')) {
                     if (class_exists('LHA_Logging')) {
                         LHA_Logging::info("HTMLStreaming: Using real-time streaming fallback for Post ID {$post_id}.");
                     }
+
+                    // Populate real-time options
+                    $this->realtime_fallback_options['process_head'] = $options['fallback_realtime_strategy_head'] ?? true;
+                    $this->realtime_fallback_options['process_user_marker'] = $options['fallback_realtime_user_marker_enabled'] ?? false;
+                    $this->realtime_fallback_options['user_marker_target'] = $options['processing_user_marker_target'] ?? 'LHA_FLUSH_TARGET'; // From Content Rules
+                    $this->realtime_fallback_options['flush_comment_text'] = trim(str_replace(array('<!--', '-->'), '', $this->flush_comment));
+
+
                     if (headers_sent($file, $line)) { // Re-check headers_sent for realtime
                         if (class_exists('LHA_Logging')) {
                             LHA_Logging::error("HTMLStreaming (realtime): Cannot start, headers already sent from {$file}:{$line} for Post ID {$post_id}.");
@@ -292,9 +310,9 @@ if (!class_exists('LHA_Features_HTMLStreaming')) {
                         return;
                     }
                     $this->streaming_active = true;
-                    if (!ob_start(array($this, 'streaming_callback'), 1)) { // Use the existing callback
+                    if (!ob_start(array($this, 'realtime_streaming_callback'), 1)) { // Use the NEW callback
                         if (class_exists('LHA_Logging')) {
-                            LHA_Logging::error("HTMLStreaming (realtime): Failed to start output buffering for Post ID {$post_id}.");
+                            LHA_Logging::error("HTMLStreaming (realtime): Failed to start output buffering with realtime_streaming_callback for Post ID {$post_id}.");
                         }
                         $this->streaming_active = false;
                     } else {
@@ -452,6 +470,71 @@ if (!class_exists('LHA_Features_HTMLStreaming')) {
                 @flush();
             }
             $this->streaming_active = false;
+        }
+
+        /**
+         * Callback for ob_start during real-time fallback.
+         * Modifies buffer to insert flush markers based on real-time rules, then passes to main streaming_callback.
+         *
+         * @since 0.2.0
+         * @param string $buffer The buffer content.
+         * @param int    $phase  The output buffering phase.
+         * @return string The processed buffer content.
+         */
+        private function realtime_streaming_callback(string $buffer, int $phase): string {
+            if (!$this->streaming_active) { // Check if streaming should be active at all
+                return $buffer;
+            }
+
+            if (class_exists('LHA_Logging')) {
+                LHA_Logging::info("Realtime Streaming Callback: Processing buffer (length " . strlen($buffer) . ", phase {$phase}).");
+            }
+
+            $modified_buffer = $buffer;
+
+            // Retrieve options stored in the class property
+            $process_head = $this->realtime_fallback_options['process_head'] ?? true;
+            $process_user_marker = $this->realtime_fallback_options['process_user_marker'] ?? false;
+            $user_marker_target_text = $this->realtime_fallback_options['user_marker_target'] ?? 'LHA_FLUSH_TARGET';
+            // $this->flush_comment is already the full comment, e.g., "<!-- LHA_FLUSH_NOW -->"
+            $flush_now_comment = $this->flush_comment; 
+
+            // Strategy 1: Process After </head>
+            if ($process_head) {
+                $insertion_point = '</head>';
+                $modified_buffer = preg_replace(
+                    '|(' . preg_quote($insertion_point, '|') . ')|i',
+                    '$1' . $flush_now_comment, // $1 is the matched </head>
+                    $modified_buffer,
+                    1, // Replace only the first occurrence
+                    $count
+                );
+                if ($count > 0 && class_exists('LHA_Logging')) {
+                    LHA_Logging::info("Realtime Streaming: Inserted flush marker after </head>.");
+                }
+            }
+
+            // Strategy 2: Process User-Placed Target Markers
+            if ($process_user_marker && !empty($user_marker_target_text)) {
+                $target_comment_full = '<!--' . $user_marker_target_text . '-->'; // Construct full comment
+                
+                // Check if $target_comment_full is different from $flush_now_comment to avoid infinite loops or pointless replacements
+                if ($target_comment_full !== $flush_now_comment) {
+                    $initial_buffer_len = strlen($modified_buffer); // For basic check if replacement happened
+                    $modified_buffer = str_replace($target_comment_full, $flush_now_comment, $modified_buffer);
+                    if (strlen($modified_buffer) !== $initial_buffer_len && class_exists('LHA_Logging')) { 
+                         LHA_Logging::info("Realtime Streaming: Attempted replacement of user target markers ('" . esc_html($target_comment_full) . "') with ('" . esc_html($flush_now_comment) . "').");
+                    }
+                } else {
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::info("Realtime Streaming: Target marker is the same as flush marker. Skipping replacement for target: '" . esc_html($target_comment_full) . "'.");
+                    }
+                }
+            }
+
+            // Pass the potentially modified buffer to the main streaming_callback
+            // which handles the actual flushing based on LHA_FLUSH_NOW markers.
+            return $this->streaming_callback($modified_buffer, $phase);
         }
     }
 }

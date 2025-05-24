@@ -106,6 +106,27 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                 'strict_version_match' => true, // For using pre-processed content
                 'fallback_behavior' => 'schedule', // 'none', 'schedule', 'realtime'
                 'schedule_reprocessing_for_stale_too' => false,
+
+                'processing_user_marker_enabled' => true,
+                'processing_user_marker_target' => 'LHA_FLUSH_TARGET',
+
+                'processing_css_selectors_enabled' => false,
+                'processing_css_selectors_rules' => array(), // Array of arrays: [ ['selector' => '', 'position' => ''], ... ]
+                'processing_nth_element_enabled' => false,
+                'processing_nth_element_rules' => array(), // Array of arrays: [ ['selector' => '', 'count' => 0, 'parent_selector' => ''], ... ]
+                'processing_min_chunk_size_enabled' => false,
+                'processing_min_chunk_size_bytes' => 2048,
+
+                // New defaults for real-time fallback sub-options (v0.2.0)
+                'fallback_realtime_strategy_head' => true,
+                'fallback_realtime_user_marker_enabled' => false,
+
+                // Default for enabling metabox (v0.2.0)
+                'enable_metabox' => true,
+                // Default for enabling post list column (v0.2.0)
+                'enable_post_list_column' => true,
+                // Default for enabling dashboard widget (v0.2.0)
+                'enable_dashboard_widget' => true,
             );
         }
 
@@ -304,7 +325,33 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                     'description' => __('Action if a page is requested but not pre-processed, or if content is stale and strict version match is on.', 'lha-progressive-html')
                 )
             );
-             add_settings_field(
+            add_settings_field(
+                'fallback_realtime_strategy_head',
+                __('Real-time Fallback: Process After </head>', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_advanced_mode_section',
+                array(
+                    'id' => 'fallback_realtime_strategy_head',
+                    'label_for' => 'fallback_realtime_strategy_head',
+                    'description' => __('If "Basic Real-time Streaming" fallback is active, enable this to insert a flush marker after the `</head>` tag in real-time.', 'lha-progressive-html'),
+                    'wrapper_class' => 'lha_fallback_realtime_option' // For JS show/hide
+                )
+            );
+            add_settings_field(
+                'fallback_realtime_user_marker_enabled',
+                __('Real-time Fallback: Use Target Marker', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_advanced_mode_section',
+                array(
+                    'id' => 'fallback_realtime_user_marker_enabled',
+                    'label_for' => 'fallback_realtime_user_marker_enabled',
+                    'description' => __('If real-time fallback is active, look for the "Target Marker Comment" (defined in Content Processing Rules) and replace it with a flush marker in real-time.', 'lha-progressive-html'),
+                    'wrapper_class' => 'lha_fallback_realtime_option' // For JS show/hide
+                )
+            );
+            add_settings_field(
                 'schedule_reprocessing_for_stale_too',
                 __('Schedule Reprocessing for Usable Stale Content', 'lha-progressive-html'),
                 array($this, 'render_checkbox_field'),
@@ -381,20 +428,102 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                 )
             );
             add_settings_field(
-                'processing_user_marker_info',
-                __('User-Placed Markers', 'lha-progressive-html'),
-                array($this, 'render_static_html_field'),
+                'processing_user_marker_enabled',
+                __('Enable User-Placed Target Markers', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
                 self::$page_slug,
                 'lha_content_rules_section',
                 array(
-                    'id' => 'processing_user_marker_info', // Not strictly needed for static HTML but good for consistency
-                    'html' => '<p>' . sprintf(
-                        /* translators: %s: Example HTML comment */
-                        esc_html__('Future Enhancement: The Content Processor can be designed to find specific HTML comments you place in your content (e.g., %s) to guide processing.', 'lha-progressive-html'),
-                        '<code>&lt;!-- LHA_FLUSH_TARGET --&gt;</code>'
-                    ) . '</p>'
+                    'id' => 'processing_user_marker_enabled',
+                    'label_for' => 'processing_user_marker_enabled',
+                    'description' => __('If enabled, the Content Processor will look for the "Target Marker" comment in your HTML and replace it with a flush marker.', 'lha-progressive-html')
                 )
             );
+            add_settings_field(
+                'processing_user_marker_target',
+                __('Target Marker Comment', 'lha-progressive-html'),
+                array($this, 'render_text_field'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_user_marker_target',
+                    'label_for' => 'processing_user_marker_target',
+                    'description' => __('The exact text of the HTML comment to look for (e.g., LHA_FLUSH_TARGET). Case-sensitive if not handled by processor.', 'lha-progressive-html') . ' <br><em>' . __('Example: <code>&lt;!-- LHA_FLUSH_TARGET --&gt;</code> would mean you enter <code>LHA_FLUSH_TARGET</code> here.', 'lha-progressive-html') . '</em>'
+                )
+            );
+             add_settings_field(
+                'processing_css_selectors_enabled',
+                __('Enable CSS Selector Rules', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_css_selectors_enabled',
+                    'label_for' => 'processing_css_selectors_enabled',
+                    'description' => __('Process content based on CSS selectors.', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'processing_css_selectors_rules',
+                __('CSS Selector Rules', 'lha-progressive-html'),
+                array($this, 'render_repeater_field_css_selectors'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_css_selectors_rules',
+                    'description' => __('One rule per line. Format: <code>CSS_Selector,Position</code>. Supported positions: "before", "after", "replace". Example: <code>img.important,after</code>', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'processing_nth_element_enabled',
+                __('Enable Nth Element Rules', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_nth_element_enabled',
+                    'label_for' => 'processing_nth_element_enabled',
+                    'description' => __('Process content based on element counts.', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'processing_nth_element_rules',
+                __('Nth Element Rules', 'lha-progressive-html'),
+                array($this, 'render_repeater_field_nth_element'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_nth_element_rules',
+                    'description' => __('One rule per line. Format: <code>Target_Tag,Nth_Count[,Parent_CSS_Selector]</code>. Parent selector is optional. Example: <code>p,3,.entry-content</code> or <code>div,5</code>', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'processing_min_chunk_size_enabled',
+                __('Enable Minimum Chunk Size', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_min_chunk_size_enabled',
+                    'label_for' => 'processing_min_chunk_size_enabled',
+                    'description' => __('Ensure a minimum amount of content between flush markers.', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'processing_min_chunk_size_bytes',
+                __('Minimum Bytes Between Markers', 'lha-progressive-html'),
+                array($this, 'render_number_field'),
+                self::$page_slug,
+                'lha_content_rules_section',
+                array(
+                    'id' => 'processing_min_chunk_size_bytes',
+                    'label_for' => 'processing_min_chunk_size_bytes',
+                    'description' => __('Minimum number of bytes. Markers too close to the previous one will be removed (approximate).', 'lha-progressive-html'),
+                    'min' => 0,
+                    'step' => 128
+                )
+            );
+
 
             // Manual Tools Section (Advanced Mode)
             add_settings_section(
@@ -426,11 +555,55 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                 'lha_manual_tools_section'
             );
              add_settings_field(
-                'view_task_queue_field',
+                'view_task_queue_field', // This is the last field in Manual Tools section
                 __('View Task Queue', 'lha-progressive-html'),
                 array($this, 'render_view_task_queue_field'),
                 self::$page_slug,
                 'lha_manual_tools_section'
+            );
+
+            // Admin UI Enhancements Section
+            add_settings_section(
+                'lha_admin_ui_section',
+                __('Admin UI Enhancements', 'lha-progressive-html'),
+                array($this, 'render_section_header'),
+                self::$page_slug
+            );
+            add_settings_field(
+                'enable_metabox',
+                __('Enable Post Edit Metabox', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_admin_ui_section',
+                array(
+                    'id' => 'enable_metabox',
+                    'label_for' => 'enable_metabox',
+                    'description' => __('Show a metabox on post edit screens with streaming status and actions.', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'enable_post_list_column',
+                __('Enable Post List Status Column', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_admin_ui_section',
+                array(
+                    'id' => 'enable_post_list_column',
+                    'label_for' => 'enable_post_list_column',
+                    'description' => __('Show a column in post lists displaying the streaming pre-processing status.', 'lha-progressive-html')
+                )
+            );
+            add_settings_field(
+                'enable_dashboard_widget',
+                __('Enable Dashboard Widget', 'lha-progressive-html'),
+                array($this, 'render_checkbox_field'),
+                self::$page_slug,
+                'lha_admin_ui_section',
+                array(
+                    'id' => 'enable_dashboard_widget',
+                    'label_for' => 'enable_dashboard_widget',
+                    'description' => __('Show a widget on the main WordPress dashboard with stats and quick links.', 'lha-progressive-html')
+                )
             );
         }
 
@@ -497,6 +670,93 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
             <?php endif; ?>
             <?php
         }
+
+        /**
+         * Renders a textarea for CSS selector rules.
+         * Each line: selector,position
+         *
+         * @since 0.2.0
+         * @param array $args Field arguments (id, description).
+         * @return void
+         */
+        public function render_repeater_field_css_selectors(array $args) {
+            $option_id = $args['id'];
+            $rules_array = $this->options[$option_id] ?? array();
+            $value = '';
+            if (is_array($rules_array)) {
+                foreach ($rules_array as $rule) {
+                    if (isset($rule['selector']) && isset($rule['position'])) {
+                        $value .= esc_textarea(trim($rule['selector']) . ',' . trim($rule['position'])) . "\n";
+                    }
+                }
+            }
+            ?>
+            <textarea id="<?php echo esc_attr($option_id); ?>"
+                      name="<?php echo esc_attr(sprintf('%s[%s]', self::$option_name, $option_id)); ?>"
+                      rows="5" class="large-text"><?php echo trim($value); ?></textarea>
+            <?php if (!empty($args['description'])) : ?>
+                <p class="description"><?php echo wp_kses_post($args['description']); ?></p>
+            <?php endif; ?>
+            <?php
+        }
+
+        /**
+         * Renders a textarea for Nth element rules.
+         * Each line: tag_selector,count,parent_css_selector
+         *
+         * @since 0.2.0
+         * @param array $args Field arguments (id, description).
+         * @return void
+         */
+        public function render_repeater_field_nth_element(array $args) {
+            $option_id = $args['id'];
+            $rules_array = $this->options[$option_id] ?? array();
+            $value = '';
+             if (is_array($rules_array)) {
+                foreach ($rules_array as $rule) {
+                    if (isset($rule['selector']) && isset($rule['count'])) {
+                        $line = esc_textarea(trim($rule['selector']) . ',' . absint($rule['count']));
+                        if (!empty($rule['parent_selector'])) {
+                            $line .= ',' . esc_textarea(trim($rule['parent_selector']));
+                        }
+                        $value .= $line . "\n";
+                    }
+                }
+            }
+            ?>
+            <textarea id="<?php echo esc_attr($option_id); ?>"
+                      name="<?php echo esc_attr(sprintf('%s[%s]', self::$option_name, $option_id)); ?>"
+                      rows="5" class="large-text"><?php echo trim($value); ?></textarea>
+            <?php if (!empty($args['description'])) : ?>
+                <p class="description"><?php echo wp_kses_post($args['description']); ?></p>
+            <?php endif; ?>
+            <?php
+        }
+
+        /**
+         * Renders a number input field.
+         *
+         * @since 0.2.0
+         * @param array $args Field arguments (id, description, min, step).
+         * @return void
+         */
+        public function render_number_field(array $args) {
+            $option_id = $args['id'];
+            $value = isset($this->options[$option_id]) ? $this->options[$option_id] : '';
+            $min = isset($args['min']) ? (int)$args['min'] : '';
+            $step = isset($args['step']) ? (int)$args['step'] : '';
+            ?>
+            <input type="number" id="<?php echo esc_attr($option_id); ?>"
+                   name="<?php echo esc_attr(sprintf('%s[%s]', self::$option_name, $option_id)); ?>"
+                   value="<?php echo esc_attr($value); ?>" class="small-text"
+                   <?php if ($min !== '') echo 'min="' . esc_attr($min) . '"'; ?>
+                   <?php if ($step !== '') echo 'step="' . esc_attr($step) . '"'; ?>>
+            <?php if (!empty($args['description'])) : ?>
+                <p class="description"><?php echo esc_html($args['description']); ?></p>
+            <?php endif; ?>
+            <?php
+        }
+
 
         /**
          * Renders a static HTML content block.
@@ -862,6 +1122,52 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
             $output['processing_strategy_head'] = !empty($input['processing_strategy_head']);
             $output['strict_version_match'] = !empty($input['strict_version_match']);
             $output['schedule_reprocessing_for_stale_too'] = !empty($input['schedule_reprocessing_for_stale_too']);
+            $output['processing_user_marker_enabled'] = !empty($input['processing_user_marker_enabled']);
+            $output['processing_css_selectors_enabled'] = !empty($input['processing_css_selectors_enabled']);
+            $output['processing_nth_element_enabled'] = !empty($input['processing_nth_element_enabled']);
+            $output['processing_min_chunk_size_enabled'] = !empty($input['processing_min_chunk_size_enabled']);
+            $output['fallback_realtime_strategy_head'] = !empty($input['fallback_realtime_strategy_head']);
+            $output['fallback_realtime_user_marker_enabled'] = !empty($input['fallback_realtime_user_marker_enabled']);
+            $output['enable_metabox'] = !empty($input['enable_metabox']);
+            $output['enable_post_list_column'] = !empty($input['enable_post_list_column']);
+            $output['enable_dashboard_widget'] = !empty($input['enable_dashboard_widget']);
+
+
+            if (isset($input['processing_user_marker_target'])) {
+                $output['processing_user_marker_target'] = sanitize_text_field($input['processing_user_marker_target']);
+            } else {
+                $output['processing_user_marker_target'] = $this->options['processing_user_marker_target'] ?? self::get_default_settings()['processing_user_marker_target'];
+            }
+
+            // Sanitize CSS Selector Rules (textarea)
+            if (isset($input['processing_css_selectors_rules'])) {
+                $output['processing_css_selectors_rules'] = $this->sanitize_textarea_repeater_rules(
+                    $input['processing_css_selectors_rules'],
+                    array('selector' => 'sanitize_text_field', 'position' => 'sanitize_key'),
+                    array('selector', 'position'), // required keys
+                    array('position' => array('before', 'after', 'replace')) // allowed values for specific keys
+                );
+            } else {
+                $output['processing_css_selectors_rules'] = self::get_default_settings()['processing_css_selectors_rules'];
+            }
+
+            // Sanitize Nth Element Rules (textarea)
+            if (isset($input['processing_nth_element_rules'])) {
+                 $output['processing_nth_element_rules'] = $this->sanitize_textarea_repeater_rules(
+                    $input['processing_nth_element_rules'],
+                    array('selector' => 'sanitize_key', 'count' => 'absint', 'parent_selector' => 'sanitize_text_field'),
+                    array('selector', 'count') // required keys
+                );
+            } else {
+                $output['processing_nth_element_rules'] = self::get_default_settings()['processing_nth_element_rules'];
+            }
+            
+            if (isset($input['processing_min_chunk_size_bytes'])) {
+                $output['processing_min_chunk_size_bytes'] = absint($input['processing_min_chunk_size_bytes']);
+            } else {
+                $output['processing_min_chunk_size_bytes'] = self::get_default_settings()['processing_min_chunk_size_bytes'];
+            }
+
 
             // Sanitize 'processing_post_types' (for background processing)
             if (isset($input['processing_post_types']) && is_array($input['processing_post_types'])) {
@@ -951,7 +1257,20 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                     'processing_post_types',
                     'process_on_save',
                     'processing_strategy_head',
-                    'processing_user_marker_info', // This is static text but good to list its field ID
+                    'processing_user_marker_enabled', 
+                    'processing_user_marker_target',  
+                    'processing_css_selectors_enabled', // New
+                    'processing_css_selectors_rules',   // New
+                    'processing_nth_element_enabled',   
+                    'processing_nth_element_rules',     
+                    'processing_min_chunk_size_enabled',
+                    'processing_min_chunk_size_bytes',  
+                    'fallback_realtime_strategy_head',      
+                    'fallback_realtime_user_marker_enabled',
+                    'enable_metabox', 
+                    'enable_post_list_column',
+                    'enable_dashboard_widget', // New UI setting
+                    // css_selector_info, nth_element_info, min_chunk_size_info were removed.
                     'manual_process_post_id_field',
                     'batch_process_field',
                     'clear_all_cache_field',
@@ -963,31 +1282,141 @@ if (!class_exists('LHA_Admin_SettingsPage')) {
                 // For JS, we target the field rows (TRs) whose inputs are listed above.
                 // Hiding the entire section (H2 + form-table) can be done by wrapping sections in divs.
                 // For now, the JS hides TRs, which is usually sufficient.
+                // Field rows are more consistently targetable.
+                // For JS, we target the field rows (TRs) whose inputs are listed above.
+                // Hiding the entire section (H2 + form-table) can be done by wrapping sections in divs.
+                // For now, the JS hides TRs, which is usually sufficient.
+                // Field rows are more consistently targetable.
+                // For JS, we target the field rows (TRs) whose inputs are listed above.
+                // Hiding the entire section (H2 + form-table) can be done by wrapping sections in divs.
+                // For now, the JS hides TRs, which is usually sufficient.
+                // Field rows are more consistently targetable.
+                // For JS, we target the field rows (TRs) whose inputs are listed above.
+                // Hiding the entire section (H2 + form-table) can be done by wrapping sections in divs.
+                // For now, the JS hides TRs, which is usually sufficient.
                 // The field rows are more consistently targetable.
                 'easy_section_ids'    => array('lha_easy_mode_section'), // Keep as is
                 'advanced_section_ids'=> array( // Add new section IDs for JS to hide/show if we wrap them
                     'lha_advanced_mode_section', 
                     'lha_bg_processing_section', 
                     'lha_content_rules_section', 
-                    'lha_manual_tools_section'
+                    'lha_manual_tools_section',
+                    'lha_admin_ui_section' // New section ID
                 ),
             );
             
-            // Merge AJAX nonce and URL with existing settings params
+            // Main admin page AJAX nonce (lha_admin_ajax_nonce)
             $localized_data['ajax_url'] = admin_url('admin-ajax.php');
-            $localized_data['nonce'] = wp_create_nonce('lha_admin_ajax_nonce');
-            // For JS confirmation dialogs
+            $localized_data['nonce'] = wp_create_nonce('lha_admin_ajax_nonce'); // Used for settings page AJAX
+            
+            // Nonce for Metabox AJAX (actions defined in LHA_Admin_Metabox)
+            // This is for JS that might run on post edit screens, not the settings page itself.
+            // However, if admin.js is also enqueued on post edit screens, this could be useful.
+            // For now, the primary nonce for metabox JS will be generated by wp_nonce_field in the metabox.
+            // If a separate JS file for metabox needs this, it would be localized there.
+            // Let's assume admin.js needs it for now if it were to handle metabox actions directly (though it's not planned for this step).
+            // $localized_data['metabox_nonce_action'] = 'lha_metabox_actions'; // The action name for check_ajax_referer
+            // $localized_data['metabox_nonce_field_value'] = wp_create_nonce('lha_metabox_actions'); // This would be the actual nonce value
+
+            // For JS confirmation dialogs & messages (used on settings page)
             $localized_data['i18n'] = array(
                 'confirm_clear_cache' => __('Are you sure you want to clear all pre-processed content?', 'lha-progressive-html'),
                 'processing_message' => __('Processing...', 'lha-progressive-html'),
                 'error_occurred' => __('An error occurred.', 'lha-progressive-html'),
+                // We can add metabox-specific i18n strings here if admin.js handles metabox JS too
+                'metabox_reprocess_confirm' => __('Are you sure you want to reprocess this post now?', 'lha-progressive-html'),
+                'metabox_delete_confirm' => __('Are you sure you want to delete the processed data for this post?', 'lha-progressive-html'),
             );
 
-            wp_localize_script('lha-admin-js', 'lha_admin_params', $localized_data); // Changed key to lha_admin_params
+            wp_localize_script('lha-admin-js', 'lha_admin_params', $localized_data);
 
             wp_enqueue_script('lha-admin-js', $js_path, $dependencies, $version, true);
             wp_enqueue_style('lha-admin-css', $css_path, array(), $version);
         }
+
+        /**
+         * Sanitizes textarea input that represents a list of rules.
+         * Each line in the textarea is expected to be a comma-separated list of values.
+         *
+         * @since 0.2.0
+         * @access private
+         * @param string $textarea_input The raw textarea input.
+         * @param array  $key_callbacks  Associative array of 'key_name' => 'sanitization_callback'.
+         * @param array  $required_keys  Array of key names that must be present in each rule.
+         * @param array  $allowed_values Associative array of 'key_name' => array_of_allowed_values.
+         * @return array An array of sanitized rule arrays.
+         */
+        private function sanitize_textarea_repeater_rules(string $textarea_input, array $key_callbacks, array $required_keys = array(), array $allowed_values = array()): array {
+            $sanitized_rules = array();
+            $lines = explode("\n", sanitize_textarea_field($textarea_input));
+
+            foreach ($lines as $line_number => $line) {
+                $line = trim($line);
+                if (empty($line)) {
+                    continue;
+                }
+
+                $parts = str_getcsv($line); // Handles CSV parsing, including quoted values if needed
+                $rule = array();
+                $key_names = array_keys($key_callbacks);
+
+                foreach ($required_keys as $req_key_index => $req_key) {
+                    if (!isset($parts[$req_key_index]) || trim($parts[$req_key_index]) === '') {
+                        if (class_exists('LHA_Logging')) {
+                            LHA_Logging::error("Admin Settings: Missing required value for '{$req_key}' in rule line: {$line_number}. Skipping rule.");
+                        }
+                        continue 2; // Skip this rule and go to the next line
+                    }
+                }
+
+                foreach ($key_names as $index => $key_name) {
+                    if (!isset($parts[$index]) || trim($parts[$index]) === '') {
+                        // If not a required key, allow it to be empty (e.g. optional parent_selector)
+                        if (in_array($key_name, $required_keys, true)) {
+                             if (class_exists('LHA_Logging')) {
+                                LHA_Logging::error("Admin Settings: Missing value for '{$key_name}' in rule line: {$line_number} parts: " . print_r($parts, true));
+                            }
+                            // This should ideally be caught by required_keys check above if the key is truly required.
+                            // If it's optional, we assign a default or empty value.
+                            $rule[$key_name] = ''; // Or appropriate default
+                        } else {
+                           $rule[$key_name] = ''; // Optional field, empty is fine
+                        }
+                        continue;
+                    }
+                    
+                    $value = trim($parts[$index]);
+                    $callback = $key_callbacks[$key_name];
+
+                    if (is_callable($callback)) {
+                        $sanitized_value = call_user_func($callback, $value);
+                    } else {
+                        $sanitized_value = sanitize_text_field($value); // Default sanitization
+                    }
+                    
+                    // Validate against allowed values if provided for this key
+                    if (isset($allowed_values[$key_name]) && !in_array($sanitized_value, $allowed_values[$key_name], true)) {
+                        if (class_exists('LHA_Logging')) {
+                             LHA_Logging::error("Admin Settings: Invalid value '{$sanitized_value}' for '{$key_name}' in rule line: {$line_number}. Allowed: " . implode(', ', $allowed_values[$key_name]));
+                        }
+                        continue 2; // Skip this rule
+                    }
+                    $rule[$key_name] = $sanitized_value;
+                }
+                 // Ensure all required keys were actually set (might not be if parts count < required_keys count)
+                $missing_keys = array_diff($required_keys, array_keys($rule));
+                if(!empty($missing_keys)){
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::error("Admin Settings: Rule on line {$line_number} is missing required keys: " . implode(', ', $missing_keys) . ". Rule skipped.");
+                    }
+                    continue;
+                }
+
+                $sanitized_rules[] = $rule;
+            }
+            return $sanitized_rules;
+        }
+
 
         /*
          * ==========================================================================

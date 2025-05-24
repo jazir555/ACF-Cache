@@ -1,0 +1,80 @@
+/* LHA Progressive HTML Loading Admin CSS */
+
+/* Wrapper for the whole settings page for potential global styles */
+.lha-progressive-html-settings {
+    /* Add padding or margins if needed */
+}
+
+/* Style for section descriptions if needed */
+.lha-section-description {
+    margin-bottom: 10px;
+    font-style: italic;
+}
+
+/* Initially hidden fields - JS will manage visibility */
+/* This approach is okay, but JS direct show/hide on init is often cleaner */
+/* For example, if JS fails, all fields might remain hidden or all shown. */
+/* Let's rely on JS to set the initial state based on the selected mode. */
+
+/* Styling for the mode selection area for better visual separation */
+#lha_mode_selection_section + .form-table { /* Targets the table immediately after the mode section's H2 */
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #c3c4c7; /* WordPress standard separator color */
+}
+
+/* Add some spacing to the fieldset for radio buttons or checkboxes */
+fieldset {
+    padding: 10px;
+}
+
+fieldset legend.screen-reader-text {
+    margin-bottom: 5px;
+}
+
+fieldset label {
+    display: block; /* Make labels block for better spacing */
+    margin-bottom: 8px;
+}
+
+fieldset label input[type="radio"],
+fieldset label input[type="checkbox"] {
+    margin-right: 5px;
+}
+
+/* Ensure text and textarea fields are consistently sized if needed */
+.lha-progressive-html-settings .regular-text {
+    width: 25em; /* Default WP class, but can be overridden */
+}
+
+.lha-progressive-html-settings .large-text {
+    width: 98%;
+}
+
+/* Styling for descriptions under fields */
+.lha-progressive-html-settings p.description {
+    font-size: 0.9em;
+    color: #555;
+}
+
+/* Specific section styling if we were to wrap sections in divs with these classes */
+/* .lha-settings-section-easy { } */
+/* .lha-settings-section-advanced { } */
+
+/* If we want to hide section titles (H2s) along with fields, we would need specific selectors for them.
+   For example, if section H2s had IDs like #lha_easy_mode_section-title:
+   #lha_easy_mode_section-title.hidden-by-js, #lha_advanced_mode_section-title.hidden-by-js {
+       display: none;
+   }
+   This would require adding these IDs/classes in the PHP where sections are defined.
+   For now, the JS primarily targets field rows (TRs).
+*/
+
+/* Responsive considerations: WordPress admin is generally responsive,
+   but ensure custom styles don't break this. */
+@media screen and (max-width: 782px) {
+    .lha-progressive-html-settings .regular-text,
+    .lha-progressive-html-settings .large-text {
+        width: 100%;
+    }
+}

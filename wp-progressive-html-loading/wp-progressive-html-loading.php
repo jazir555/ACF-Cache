@@ -62,6 +62,12 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
      */
     class ProgressiveHTMLLoaderPlugin { // Adjusted to avoid namespace conflict before autoloader setup, will be LHA\ProgressiveHTMLLoaderPlugin
         /**
+         * Action group name for Action Scheduler tasks.
+         * @since 0.2.0 // Assuming 0.2.0 for new features
+         */
+        private const ACTION_GROUP = 'lha-progressive-html-processing';
+
+        /**
          * Singleton instance of the plugin.
          *
          * @var ProgressiveHTMLLoaderPlugin|null
@@ -119,14 +125,15 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
         }
 
         /**
-         * Loads plugin dependencies and registers features.
-         * Features are registered with the registry here.
+         * Loads plugin dependencies and registers features/services.
+         * Features are registered with the registry.
+         * Services are registered with the service locator.
          *
          * @access private
          * @since 0.1.0
          */
         private function load_dependencies() {
-            // Example feature registrations (forward declarations)
+            // Existing feature registrations
             $this->registry->register_feature(
                 'html_streaming',
                 LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Features/HTMLStreaming.php',
@@ -139,10 +146,88 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
                 'LHA_Admin_SettingsPage', // Adjusted for current no-namespace strategy
                 'boot'
             );
+
+            // Placeholder for Scheduler
+            $this->registry->register_feature(
+                'scheduler',
+                LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Core/Scheduler.php',
+                'LHA_Core_Scheduler', // Assuming this naming convention
+                'boot'
+            );
+
+            // Placeholder for Content Processor Feature (likely run by Scheduler)
+            $this->registry->register_feature(
+                'content_processor',
+                LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Features/ContentProcessor.php',
+                'LHA_Features_ContentProcessor',
+                'boot' // Its boot method would register actions with the Scheduler
+            );
+
+            // Register ContentFetcher with ServiceLocator
+            $this->service_locator->register('content_fetcher', function() {
+                $fetcher_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Services/ContentFetcher.php';
+                if (file_exists($fetcher_file) && !class_exists('LHA_Services_ContentFetcher')) {
+                    require_once $fetcher_file;
+                }
+                if (!class_exists('LHA_Services_ContentFetcher')) {
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::error('LHA_Services_ContentFetcher class not found and could not be loaded.');
+                    }
+                    // Return a dummy or null, or throw an exception, depending on how critical this service is at this stage.
+                    // For now, returning null might cause issues later if the service is expected.
+                    // Throwing an exception might be better if it's essential.
+                    // Let's assume for now it's essential and should throw if not loadable.
+                    // However, the original plan was to return null from service locator on failure.
+                    // The ServiceLocator's get() method already throws if factory returns null.
+                    return null; 
+                }
+                // $plugin_options = get_option('lha_progressive_html_settings', array()); // Pass options if constructor needs them
+                return new LHA_Services_ContentFetcher(/* $plugin_options */);
+            });
+
+            // Register StorageManager with ServiceLocator
+            $this->service_locator->register('storage_manager', function() {
+                $manager_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Core/StorageManager.php';
+                if (file_exists($manager_file) && !class_exists('LHA_Core_StorageManager')) {
+                    require_once $manager_file;
+                }
+                if (!class_exists('LHA_Core_StorageManager')) {
+                    if (class_exists('LHA_Logging')) {
+                        LHA_Logging::error('LHA_Core_StorageManager class not found for service locator.');
+                    }
+                    return null; // ServiceLocator's get() will throw an exception
+                }
+                return new LHA_Core_StorageManager();
+            });
+
+            // Register StorageManager with Registry for its boot method
+            $this->registry->register_feature(
+                'storage_manager_boot', // Unique key for registry
+                LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Core/StorageManager.php',
+                'LHA_Core_StorageManager',
+                'boot'
+            );
+
+            // Register ContentProcessor instance with ServiceLocator
+            $this->service_locator->register('content_processor_instance', function() {
+                $processor_file = LHA_PROGRESSIVE_HTML_PLUGIN_DIR . 'src/Features/ContentProcessor.php';
+                if (file_exists($processor_file) && !class_exists('LHA_Features_ContentProcessor')) {
+                    require_once $processor_file;
+                }
+                if (!class_exists('LHA_Features_ContentProcessor')) {
+                    if (class_exists('LHA_Logging')) { // Check if LHA_Logging is available
+                        LHA_Logging::error('LHA_Features_ContentProcessor class not found for service locator.');
+                    }
+                    return null; 
+                }
+                // Pass $this->service_locator which is the ServiceLocator instance from ProgressiveHTMLLoaderPlugin
+                return new LHA_Features_ContentProcessor($this->service_locator); 
+            });
         }
 
         /**
-         * Adds WordPress hooks for activation, deactivation, and plugin initialization.
+         * Adds WordPress hooks for activation, deactivation, plugin initialization,
+         * and future background processing triggers.
          *
          * @access private
          * @since 0.1.0
@@ -151,7 +236,16 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
             register_activation_hook(__FILE__, array('LHA_ProgressiveHTMLLoaderPlugin', 'activate'));
             register_deactivation_hook(__FILE__, array('LHA_ProgressiveHTMLLoaderPlugin', 'deactivate'));
             add_action('plugins_loaded', array($this, 'init_plugin'));
+
+            // Placeholder hooks for background processing (to be implemented later)
+            // add_action('save_post', array($this, 'handle_save_post'), 10, 2);
+            // add_action('delete_post', array($this, 'handle_delete_post'), 10, 1);
         }
+
+        // Placeholder methods for future hook callbacks:
+        // public function handle_save_post($post_id, $post) { /* ... schedule processing via Scheduler service ... */ }
+        // public function handle_delete_post($post_id) { /* ... schedule cleanup via Scheduler service ... */ }
+
 
         /**
          * Initializes the plugin: loads text domain and features.
@@ -178,6 +272,8 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
          * Plugin activation hook.
          *
          * Checks PHP version and sets up default options.
+         * If using Action Scheduler, its tables are typically created automatically when it first runs.
+         * No specific action needed here for AS table creation unless bundling it manually.
          * This method is called when the plugin is activated.
          * It is production-ready.
          *
@@ -224,7 +320,8 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
         /**
          * Plugin deactivation hook.
          *
-         * Placeholder for any cleanup tasks. Currently, settings are preserved by default.
+         * Unschedules all Action Scheduler tasks associated with this plugin.
+         * Settings are preserved by default.
          * This method is called when the plugin is deactivated.
          * It is production-ready.
          *
@@ -232,13 +329,16 @@ if (!class_exists('LHA\ProgressiveHTMLLoaderPlugin')) {
          * @return void
          */
         public static function deactivate() {
+            // Unschedule all Action Scheduler tasks if Action Scheduler is active
+            if (function_exists('as_unschedule_all_actions')) {
+                as_unschedule_all_actions('', array(), self::ACTION_GROUP);
+            }
+
             // Settings Preservation: By default, plugin settings are NOT removed on deactivation.
             // To remove settings, you would use: delete_option('lha_progressive_html_settings');
-            // Consider adding an option in plugin settings to control this behavior.
 
-            // Unschedule Cron Jobs (if any were added):
-            // $timestamp = wp_next_scheduled('lha_my_cron_hook');
-            // if ($timestamp) { wp_unschedule_event($timestamp, 'lha_my_cron_hook'); }
+            // Also, clear any legacy WP Cron jobs if they were used before or as a fallback
+            // Example: wp_clear_scheduled_hook('lha_my_legacy_cron_hook');
 
             // flush_rewrite_rules(); // Optional: If rewrite rules were added.
         }
